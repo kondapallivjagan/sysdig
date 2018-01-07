@@ -66,6 +66,10 @@ static void usage()
     printf(
 "sysdig version " SYSDIG_VERSION "\n"
 "Usage: sysdig [options] [-p <output_format>] [filter]\n\n"
+#ifdef HAS_FILTERING
+"   or  sysdig [options] [-p <output_format>] [-f filter] [--exec <command> <args...>]\n\n"
+#else
+#endif
 "Options:\n"
 " -A, --print-ascii  Only print the text portion of data buffers, and echo\n"
 "                    end-of-lines. This is useful to only display human-readable\n"
@@ -79,8 +83,10 @@ static void usage()
 "                    sets an additional filter to trace only the command\n"
 "                    (including any subprocesses it may spawn) and exits\n"
 "                    as soon as the command and all its subprocesses exit\n"
-"                    (comparable to strace -ff command). If the command\n"
-"                    needs arguments, use quotes, e.g. --exec \"ls /etc\".\n"
+"                    (comparable to strace -ff command).\n"
+"                    Note: if you use this option, you must pass the filter\n"
+"                    as a single argument (e.g. in quotes) to the -f/--filter\n"
+"                    option as the positional arguments are passed to the command.\n"
 #endif
 #ifdef HAS_CHISELS
 " -c <chiselname> <chiselargs>, --chisel  <chiselname> <chiselargs>\n"
@@ -119,6 +125,10 @@ static void usage()
 "                    parameter each.\n"
 "                    Used alongside -W flags creates a ring buffer of file containing\n"
 "                    num_events each.\n"
+#ifdef HAS_FILTERING
+" -f <filter>        The filter to use. Can be omitted (the filter passed without any\n"
+"                    options) except when using the --exec option.\n"
+#endif
 " -F, --fatfile      Enable fatfile mode\n"
 "                    when writing in fatfile mode, the output file will contain\n"
 "                    events that will be invisible when reading the file, but\n"
@@ -799,8 +809,10 @@ sysdig_init_res sysdig_init(int argc, char **argv)
 	string* mesos_api = 0;
 	bool force_tracers_capture = false;
 	bool page_faults = false;
+	string filter;
 #ifdef HAS_FILTERING
-	string command;
+	bool exec_command = false;
+	vector<string> command;
 #endif
 	pid_t command_pid = 0;
 
@@ -822,6 +834,9 @@ sysdig_init_res sysdig_init(int argc, char **argv)
 		{"debug", no_argument, 0, 'D'},
 		{"exclude-users", no_argument, 0, 'E' },
 		{"event-limit", required_argument, 0, 'e'},
+#ifdef HAS_FILTERING
+		{"filter", required_argument, 0, 'f'},
+#endif
 		{"fatfile", no_argument, 0, 'F'},
 		{"filter-proclist", no_argument, 0, 0 },
 		{"seconds", required_argument, 0, 'G' },
@@ -857,7 +872,7 @@ sysdig_init_res sysdig_init(int argc, char **argv)
 		{"print-hex-ascii", no_argument, 0, 'X'},
 		{"compress", no_argument, 0, 'z' },
 #ifdef HAS_FILTERING
-		{"exec", required_argument, 0, 1 },
+		{"exec", no_argument, 0, 1 },
 #endif
 		{0, 0, 0, 0}
 	};
@@ -879,7 +894,7 @@ sysdig_init_res sysdig_init(int argc, char **argv)
 		while((op = getopt_long(argc, argv,
                                         "Abc:"
                                         "C:"
-                                        "dDEe:F"
+                                        "dDEe:f:F"
                                         "G:"
                                         "hi:jk:K:lLm:M:n:Pp:qRr:Ss:t:Tv"
                                         "W:"
@@ -976,6 +991,11 @@ sysdig_init_res sysdig_init(int argc, char **argv)
 					goto exit;
 				}
 				break;
+#ifdef HAS_FILTERING
+			case 'f':
+				filter = optarg;
+				break;
+#endif
 			case 'F':
 				inspector->set_fatfile_dump_mode(true);
 				break;
@@ -1207,7 +1227,7 @@ sysdig_init_res sysdig_init(int argc, char **argv)
 				break;
 #ifdef HAS_FILTERING
 			case 1:
-				command = optarg;
+				exec_command = true;
 				break;
 #endif
             // getopt_long : '?' for an ambiguous match or an extraneous parameter 
@@ -1300,8 +1320,6 @@ sysdig_init_res sysdig_init(int argc, char **argv)
 			goto exit;
 		}
 
-		string filter;
-
 		//
 		// the filter is at the end of the command line
 		//
@@ -1310,13 +1328,19 @@ sysdig_init_res sysdig_init(int argc, char **argv)
 #ifdef HAS_FILTERING
 			for(int32_t j = optind + n_filterargs; j < argc; j++)
 			{
-				filter += argv[j];
-				if(j < argc - 1)
+				if(exec_command)
 				{
-					filter += " ";
+					command.push_back(argv[j]);
+				}
+				else
+				{
+					filter += argv[j];
+					if(j < argc - 1)
+					{
+						filter += " ";
+					}
 				}
 			}
-
 #else
 			fprintf(stderr, "filtering not compiled.\n");
 			res.m_res = EXIT_FAILURE;
@@ -1325,7 +1349,13 @@ sysdig_init_res sysdig_init(int argc, char **argv)
 		}
 
 #ifdef HAS_FILTERING
-		if (command.size()) {
+		if (exec_command) {
+			if(command.size() == 0)
+			{
+				fprintf(stderr, "the --exec flag requires at least one argument.\n");
+				res.m_res = EXIT_FAILURE;
+				goto exit;
+			}
 			if(infiles.size() != 0)
 			{
 				fprintf(stderr, "the --exec flag cannot be used with saved captures.\n");
@@ -1343,17 +1373,26 @@ sysdig_init_res sysdig_init(int argc, char **argv)
 			command_pid = fork();
 			switch(command_pid) {
 				case 0: // child
-					raise(SIGSTOP);
-					execl("/bin/sh", "/bin/sh", "-c", command.c_str(), 0);
-					perror("Failed to exec process");
-					_exit(255);
+					{
+						const char **argv = new const char* [command.size()+2];
+						for(size_t i=0; i<=command.size(); ++i)
+						{
+							argv[i] = command[i].c_str();
+						}
+						argv[command.size()] = NULL;
+
+						raise(SIGSTOP);
+						execvp(argv[0], (char**)argv);
+						perror("Failed to exec process");
+						_exit(255);
+					}
 				case -1: // fork error
 					perror("Failed to fork --exec process");
 					res.m_res = EXIT_FAILURE;
 					goto exit;
 				default:
 					char pid_filter[sizeof("proc.apid = 18446744073709551616")];
-					snprintf(pid_filter, sizeof(pid_filter), "proc.apid = %d", command_pid);
+					snprintf(pid_filter, sizeof(pid_filter), "proc.apid = %d", getpid());
 					if (filter.size())
 					{
 						filter = "((" + filter + ") or evt.type=procexit) and (" + pid_filter + ")";
