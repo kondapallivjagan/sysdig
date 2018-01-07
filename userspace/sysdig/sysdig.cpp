@@ -801,8 +801,8 @@ sysdig_init_res sysdig_init(int argc, char **argv)
 	bool page_faults = false;
 #ifdef HAS_FILTERING
 	string command;
-	pid_t command_pid = 0;
 #endif
+	pid_t command_pid = 0;
 
 	// These variables are for the cycle_writer engine
 	int duration_seconds = 0;
