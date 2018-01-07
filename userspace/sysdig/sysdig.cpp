@@ -573,7 +573,8 @@ captureinfo do_inspect(sinsp* inspector,
 	sinsp_filter* display_filter,
 	vector<summary_table_entry>* summary_table,
 	sinsp_evt_formatter* formatter,
-	bool trace_pids)
+	pid_t trace_pid,
+	int *exitcode)
 {
 	captureinfo retval;
 	int32_t res;
@@ -747,15 +748,27 @@ captureinfo do_inspect(sinsp* inspector,
 		}
 
 #ifdef HAS_FILTERING
-		if(trace_pids)
+		if(trace_pid)
 		{
 			uint16_t etype = ev->get_type();
 			pid_t tid = ev->get_tid();
 
 			if(etype == PPME_PROCEXIT_E || etype == PPME_PROCEXIT_1_E)
 			{
+				if(exitcode && tid == trace_pid)
+				{
+					int raw_exitcode = stoi(ev->get_param_value_str("status"));
+					if(WIFEXITED(raw_exitcode))
+					{
+						*exitcode = WEXITSTATUS(raw_exitcode);
+					}
+					else if(WIFSIGNALED(raw_exitcode))
+					{
+						*exitcode = 128 + WTERMSIG(raw_exitcode);
+					}
+				}
 				pids.erase(tid);
-				if (pids.empty())
+				if(pids.empty())
 				{
 					g_terminate = true;
 				}
@@ -1649,7 +1662,8 @@ sysdig_init_res sysdig_init(int argc, char **argv)
 				display_filter,
 				summary_table,
 				&formatter,
-				command_pid != 0);
+				command_pid,
+				&res.m_res);
 
 			duration = ((double)clock()) / CLOCKS_PER_SEC - duration;
 
