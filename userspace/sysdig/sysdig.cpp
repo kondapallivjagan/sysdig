@@ -585,6 +585,7 @@ captureinfo do_inspect(sinsp* inspector,
 	uint64_t duration_start = 0;
 #ifdef HAS_FILTERING
 	set<pid_t> pids;
+	unordered_map<pid_t, uint64_t> dead_pids;
 
 	if (trace_pid)
 	{
@@ -691,6 +692,7 @@ captureinfo do_inspect(sinsp* inspector,
 					}
 				}
 				pids.erase(tid);
+				dead_pids[tid] = ev->get_ts();
 				if(pids.empty())
 				{
 					g_terminate = true;
@@ -698,7 +700,23 @@ captureinfo do_inspect(sinsp* inspector,
 			}
 			else
 			{
-				pids.insert(tid);
+				if(dead_pids.find(tid) == dead_pids.end())
+				{
+					pids.insert(tid);
+				}
+			}
+
+			for(auto it = dead_pids.begin(); it != dead_pids.end(); )
+			{
+				int64_t ts = it->second;
+				if(ev->get_ts() - ts > 500000000)
+				{
+					it = dead_pids.erase(it);
+				}
+				else
+				{
+					++it;
+				}
 			}
 		}
 #endif
