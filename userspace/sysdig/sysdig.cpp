@@ -1399,6 +1399,12 @@ sysdig_init_res sysdig_init(int argc, char **argv)
 						}
 						argv[command.size()] = NULL;
 
+						if(signal(SIGCHLD, SIG_DFL) == SIG_ERR)
+						{
+							perror("Failed to reset SIGCHLD handler");
+							_exit(255);
+						}
+
 						raise(SIGSTOP);
 						execvp(argv[0], (char**)argv);
 						perror("Failed to exec process");
