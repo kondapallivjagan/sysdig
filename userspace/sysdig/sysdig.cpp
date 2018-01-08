@@ -584,6 +584,11 @@ captureinfo do_inspect(sinsp* inspector,
 	uint64_t duration_start = 0;
 #ifdef HAS_FILTERING
 	set<pid_t> pids;
+
+	if (trace_pid)
+	{
+		pids.insert(trace_pid);
+	}
 #endif
 
 	if(json)
