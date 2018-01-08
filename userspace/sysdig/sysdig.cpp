@@ -126,7 +126,8 @@ static void usage()
 "                    Used alongside -W flags creates a ring buffer of file containing\n"
 "                    num_events each.\n"
 #ifdef HAS_FILTERING
-" -f <filter>        The filter to use. Can be omitted (the filter passed without any\n"
+" -f <filter>, --filter=<filter>\n"
+"                    The filter to use. Can be omitted (the filter passed without any\n"
 "                    options) except when using the --exec option.\n"
 #endif
 " -F, --fatfile      Enable fatfile mode\n"
