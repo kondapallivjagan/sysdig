@@ -669,6 +669,38 @@ captureinfo do_inspect(sinsp* inspector,
 			}
 		}
 
+#ifdef HAS_FILTERING
+		if(trace_pid)
+		{
+			uint16_t etype = ev->get_type();
+			pid_t tid = ev->get_tid();
+
+			if(etype == PPME_PROCEXIT_E || etype == PPME_PROCEXIT_1_E)
+			{
+				if(exitcode && tid == trace_pid)
+				{
+					int raw_exitcode = stoi(ev->get_param_value_str("status"));
+					if(WIFEXITED(raw_exitcode))
+					{
+						*exitcode = WEXITSTATUS(raw_exitcode);
+					}
+					else if(WIFSIGNALED(raw_exitcode))
+					{
+						*exitcode = 128 + WTERMSIG(raw_exitcode);
+					}
+				}
+				pids.erase(tid);
+				if(pids.empty())
+				{
+					g_terminate = true;
+				}
+			}
+			else
+			{
+				pids.insert(tid);
+			}
+		}
+#endif
 		//
 		// If there are chisels to run, run them
 		//
@@ -752,38 +784,6 @@ captureinfo do_inspect(sinsp* inspector,
 			cout << flush;
 		}
 
-#ifdef HAS_FILTERING
-		if(trace_pid)
-		{
-			uint16_t etype = ev->get_type();
-			pid_t tid = ev->get_tid();
-
-			if(etype == PPME_PROCEXIT_E || etype == PPME_PROCEXIT_1_E)
-			{
-				if(exitcode && tid == trace_pid)
-				{
-					int raw_exitcode = stoi(ev->get_param_value_str("status"));
-					if(WIFEXITED(raw_exitcode))
-					{
-						*exitcode = WEXITSTATUS(raw_exitcode);
-					}
-					else if(WIFSIGNALED(raw_exitcode))
-					{
-						*exitcode = 128 + WTERMSIG(raw_exitcode);
-					}
-				}
-				pids.erase(tid);
-				if(pids.empty())
-				{
-					g_terminate = true;
-				}
-			}
-			else
-			{
-				pids.insert(tid);
-			}
-		}
-#endif
 	}
 
 	return retval;
